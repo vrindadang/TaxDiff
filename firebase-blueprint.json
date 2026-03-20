@@ -1,0 +1,47 @@
+{
+  "entities": {
+    "AnalysisHistory": {
+      "title": "Analysis History",
+      "description": "Stores the history of tax framework comparisons.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "oldFormNo": { "type": "string" },
+        "newFormNo": { "type": "string" },
+        "report": { "type": "string" },
+        "uid": { "type": "string", "description": "The user ID of the owner." }
+      },
+      "required": ["id", "date", "oldFormNo", "newFormNo", "report", "uid"]
+    },
+    "LibraryStatus": {
+      "title": "Library Status",
+      "description": "Stores the status of uploaded PDF libraries for a user.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "old_rules": { "type": "boolean" },
+        "old_forms": { "type": "boolean" },
+        "new_rules": { "type": "boolean" },
+        "new_forms": { "type": "boolean" },
+        "navigator": { "type": "boolean" },
+        "rules_navigator": { "type": "boolean" }
+      },
+      "required": ["uid"]
+    }
+  },
+  "firestore": {
+    "/history/{historyId}": {
+      "schema": "AnalysisHistory",
+      "description": "Collection of analysis history entries."
+    },
+    "/libraryStatus/{uid}": {
+      "schema": "LibraryStatus",
+      "description": "Status of the user's library setup."
+    },
+    "/libraries/{libId}": {
+      "schema": "object",
+      "description": "Stores the actual text and metadata of a PDF library. libId is {uid}_{key}."
+    }
+  }
+}

@@ -1,11 +1,21 @@
 export function cleanWebText(text: string): string {
   if (!text) return "";
   return text
-    .replace(/\d{1,2}\/\d{1,2}\/\d{2,4},\s\d{1,2}:\d{2}\s[AP]M/g, "") // Timestamps
+    // Remove Gazette headers and artifacts
+    .replace(/THE GAZETTE OF INDIA\s*:\s*EXTRAORDINARY/gi, "")
+    .replace(/\[PART II—SEC\.\s*3\(i\)\]/gi, "")
+    // Remove Hindi Gazette headers and characters
+    .replace(/भारत\s*का\s*राजपत्र\s*:\s*असाधारण/g, "")
+    .replace(/[\u0900-\u097F]+/g, " ")
+    // Remove timestamps and common web artifacts
+    .replace(/\d{1,2}\/\d{1,2}\/\d{2,4},\s\d{1,2}:\d{2}\s[AP]M/g, "")
     .replace(/about:blank/g, "")
     .replace(/Income Tax Department/g, "")
-    .replace(/^\s*\d+\s*$/gm, "") // Lone superscript/page numbers
-    .replace(/\n{3,}/g, "\n\n") // Normalize whitespace
+    // Remove lone page numbers on a line
+    .replace(/^\s*\d+\s*$/gm, "")
+    // Normalize whitespace while preserving structure
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n\s*\n/g, "\n\n")
     .trim();
 }
 
@@ -17,90 +27,50 @@ export function extractSection(
   const cleanQuery = query.replace(/Rule\s+|Form\s+/i, "").trim();
   if (!cleanQuery) return null;
 
-  const patterns = type === "rule" 
+  // Precise Rule Start: <number>. <Title>.[—–] (1)
+  // Precise Form Start: FORM NO. <number> [See rule ...]
+  
+  const startPatterns = type === "rule" 
     ? [
-        new RegExp(`^\\s*Rule\\s+${cleanQuery}\\b`, "im"),
-        new RegExp(`^\\s*${cleanQuery}\\.\\s*Rule\\b`, "im"),
-        new RegExp(`^\\s*${cleanQuery}\\.\\s*\\(1\\)`, "im"),
-        new RegExp(`\\b\\d{1,3}\\s+${cleanQuery}\\.\\s*\\(1\\)`, "im"),
-        new RegExp(`\\[[^\\]]+\\]\\.?\\s*\\n?\\s*${cleanQuery}\\.`, "im"),
-        new RegExp(`^\\s*${cleanQuery}\\.\\s`, "im"),
-        new RegExp(`^\\s*${cleanQuery}\\.\\s*\\(`, "im"),
+        new RegExp(`^\\s*${cleanQuery}\\.\\s+.*?[.—–]`, "im"),
         new RegExp(`^\\s*${cleanQuery}\\.\\s+`, "im"),
-        new RegExp(`^\\s*${cleanQuery}\\s+`, "im"),
         new RegExp(`\\bRule\\s+${cleanQuery}\\b`, "i")
       ]
     : [
-        new RegExp(`^\\s*FORM\\s+No[\\.\\s]*${cleanQuery}\\b`, "im"),
-        new RegExp(`Form\\s+No[\\.\\s]*${cleanQuery}\\b`, "im"),
-        new RegExp(`FORM\\s+NO[\\.\\s]*${cleanQuery}\\b`, "im"),
-        new RegExp(`\\[Form No\\.?\\s*${cleanQuery}\\]`, "im"),
-        new RegExp(`^FORM ${cleanQuery}\\b`, "im"),
-        new RegExp(`\\bFORM\\s+NO\\.?\\s+${cleanQuery}\\b`, "i")
+        new RegExp(`^\\s*FORM\\s+NO\\.?\\s*${cleanQuery}\\b`, "im"),
+        new RegExp(`FORM\\s+NO\\.?\\s*${cleanQuery}\\b`, "im"),
+        new RegExp(`\\[Form No\\.?\\s*${cleanQuery}\\]`, "im")
       ];
 
   let match: RegExpExecArray | null = null;
-  let foundPatternIndex = -1;
-
-  for (let i = 0; i < patterns.length; i++) {
-    match = patterns[i].exec(fullText);
-    if (match) {
-      foundPatternIndex = i;
-      break;
-    }
+  for (const p of startPatterns) {
+    match = p.exec(fullText);
+    if (match) break;
   }
 
-  if (!match) {
-    // Last resort: simple indexOf
-    const index = fullText.indexOf(cleanQuery);
-    if (index !== -1) {
-      const start = index;
-      const end = Math.min(start + 15000, fullText.length);
-      const text = cleanWebText(fullText.substring(start, end));
-      return { text, foundAt: start, charCount: text.length };
-    }
-    return null;
-  }
+  if (!match) return null;
 
   const start = match.index;
   
   // Find end boundary
-  const endPatterns = type === "rule"
-    ? [
-        new RegExp(`(?:^|\\n)\\s*Rule\\s+(?!${cleanQuery}\\b)\\d+`, "i"), 
-        new RegExp(`(?:^|\\n)\\s*\\d+\\.\\s*\\(1\\)`, "i"), 
-        /about:blank/i
-      ]
-    : [
-        new RegExp(`(?:^|\\n)\\s*FORM\\s+No[\\.\\s]*(?!${cleanQuery}\\b)\\d+`, "i"),
-        new RegExp(`(?:^|\\n)\\s*\\[?Form\\s+No[\\.\\s]*(?!${cleanQuery}\\b)\\d+`, "i"),
-        /about:blank/i
-      ];
+  // For Rule: next sequential rule start marker
+  // For Form: next FORM NO. <number> marker
+  
+  const endPattern = type === "rule"
+    ? new RegExp(`(?:^|\\n)\\s*(?!${cleanQuery}\\.)\\d+\\.\\s+`, "i")
+    : new RegExp(`(?:^|\\n)\\s*FORM\\s+NO\\.?\\s*(?!${cleanQuery}\\b)\\d+`, "i");
 
   let end = fullText.length;
-  for (const ep of endPatterns) {
-    const nextMatch = ep.exec(fullText.substring(start + 10));
-    if (nextMatch) {
-      end = Math.min(end, start + 10 + nextMatch.index);
-    }
+  // Skip the start marker to find the next one
+  const nextMatch = endPattern.exec(fullText.substring(start + 20));
+  if (nextMatch) {
+    end = start + 20 + nextMatch.index;
   }
 
-  // Cap length
-  end = Math.min(end, start + 15000);
+  // Cap length to avoid runaway extraction if end marker is missing
+  end = Math.min(end, start + 60000);
 
   const extracted = cleanWebText(fullText.substring(start, end));
-
-  // If extracted < 300 chars, recurse to find next match if possible
-  if (extracted.length < 300 && foundPatternIndex !== -1) {
-    const nextSearch = fullText.substring(start + match[0].length);
-    const nextResult = extractSection(nextSearch, query, type);
-    if (nextResult) {
-      return {
-        ...nextResult,
-        foundAt: start + match[0].length + nextResult.foundAt
-      };
-    }
-  }
 
   return { text: extracted, foundAt: start, charCount: extracted.length };
 }
@@ -140,22 +110,27 @@ export function extractByPage(
   let combined = "";
   const startIdx = targetPage - 1;
   
-  const headingPattern = type === "rule" 
-    ? /^\s*Rule\s+\d+/im 
-    : /^\s*(?:\[)?FORM\s+No[.\s]*\d+/im;
+  // Pattern for the START of ANY section (Rule or Form)
+  const nextSectionPattern = type === "rule" 
+    ? /^\s*\d+\.\s+.*?[.—–]/im 
+    : /^\s*FORM\s+NO\.?\s*\d+/im;
 
   for (let i = startIdx; i < pageTexts.length; i++) {
     const pageText = pageTexts[i];
     
-    // If it's not the first page we're adding, and we see a new heading, stop
-    if (i > startIdx && headingPattern.test(pageText.substring(0, 500))) {
-      break;
+    // If it's not the first page we're adding, check if a new section starts here
+    if (i > startIdx) {
+      const match = nextSectionPattern.exec(pageText);
+      if (match && match.index < 1000) { // If a new section starts near the top of the page
+        combined += pageText.substring(0, match.index);
+        break;
+      }
     }
     
     combined += pageText + "\n";
     
-    // Safety break
-    if (combined.length > 20000) break;
+    // Increased safety break for long legal documents
+    if (combined.length > 150000) break;
   }
 
   const cleaned = cleanWebText(combined);

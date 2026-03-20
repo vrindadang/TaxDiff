@@ -1,7 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Search, ArrowRight, FileText } from 'lucide-react';
+import { doc, getDoc } from 'firebase/firestore';
+
+import { db, handleFirestoreError, OperationType } from '@/firebase';
 import { RULE_NAVIGATOR, FORM_NAVIGATOR } from '@/constants/navigator';
 import { extractByPage } from '@/services/pdfExtractor';
+
+const DEFAULT_UID = 'global_user';
 
 interface NavigatorEntry {
   label: string;
@@ -24,13 +29,7 @@ export default function FormNavigator({ onUseAsOld, onUseAsNew, onSelectMapping,
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    loadEntries();
-    window.addEventListener('storage_updated', loadEntries);
-    return () => window.removeEventListener('storage_updated', loadEntries);
-  }, [filterType, mode]);
-
-  const loadEntries = () => {
+  const loadEntries = useCallback(async () => {
     if (mode === 'static') {
       const mapping = filterType === 'form' ? FORM_NAVIGATOR : RULE_NAVIGATOR;
       const staticEntries: NavigatorEntry[] = Object.entries(mapping).map(([newNo, oldNo]) => ({
@@ -44,34 +43,40 @@ export default function FormNavigator({ onUseAsOld, onUseAsNew, onSelectMapping,
       return;
     }
 
-    const key = filterType === 'form' ? 'taxdiff_navigator' : 'taxdiff_rules_navigator';
-    const data = localStorage.getItem(key);
-    if (data) {
-      try {
-        const parsed = JSON.parse(data);
+    const key = filterType === 'form' ? 'navigator' : 'rules_navigator';
+    try {
+      const libSnap = await getDoc(doc(db, 'libraries', `${DEFAULT_UID}_${key}`));
+      if (libSnap.exists()) {
+        const parsed = libSnap.data();
         setEntries(parsed.links || []);
-      } catch {
+      } else {
         setEntries([]);
       }
-    } else {
-      setEntries([]);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.GET, `libraries/${DEFAULT_UID}_${key}`);
     }
-  };
+  }, [filterType, mode]);
+
+  useEffect(() => {
+    loadEntries();
+    window.addEventListener('storage_updated', loadEntries);
+    return () => window.removeEventListener('storage_updated', loadEntries);
+  }, [loadEntries]);
 
   const handleUse = async (entry: NavigatorEntry, side: 'old' | 'new') => {
     setLoading(true);
     try {
       const libKey = side === 'old' 
-        ? (filterType === 'form' ? 'taxdiff_old_forms' : 'taxdiff_old_rules')
-        : (filterType === 'form' ? 'taxdiff_new_forms' : 'taxdiff_new_rules');
+        ? (filterType === 'form' ? 'old_forms' : 'old_rules')
+        : (filterType === 'form' ? 'new_forms' : 'new_rules');
       
-      const libData = localStorage.getItem(libKey);
-      if (!libData) {
+      const libSnap = await getDoc(doc(db, 'libraries', `${DEFAULT_UID}_${libKey}`));
+      if (!libSnap.exists()) {
         alert(`Please upload the ${side.toUpperCase()} ${filterType.toUpperCase()}S PDF in Library Setup first.`);
         return;
       }
 
-      const parsedLib = JSON.parse(libData);
+      const parsedLib = libSnap.data();
       const page = side === 'old' ? entry.oldPage : entry.newPage;
       const label = side === 'old' ? entry.oldLabel : entry.label;
 
@@ -95,7 +100,7 @@ export default function FormNavigator({ onUseAsOld, onUseAsNew, onSelectMapping,
         alert("Failed to extract text from specified page.");
       }
     } catch (error) {
-      console.error("Extraction error:", error);
+      handleFirestoreError(error, OperationType.GET, 'libraries');
     } finally {
       setLoading(false);
     }

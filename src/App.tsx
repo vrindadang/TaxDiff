@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Library, 
   FileText, 
@@ -20,13 +20,27 @@ import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { 
+  collection, 
+  query, 
+  orderBy, 
+  onSnapshot, 
+  addDoc, 
+  doc, 
+  getDoc,
+  getDocFromServer,
+  limit
+} from 'firebase/firestore';
 
+import { db, handleFirestoreError, OperationType } from '@/firebase';
 import LibrarySetup from '@/components/LibrarySetup';
 import FormNavigator from '@/components/FormNavigator';
 import { analyzeTaxForms, TaxAnalysisInput } from '@/services/geminiService';
 import { detectAndExtract } from '@/services/pdfExtractor';
 import { generateAnalysisPDF } from '@/services/pdfGenerator';
 import { RULE_NAVIGATOR, FORM_NAVIGATOR } from '@/constants/navigator';
+
+const DEFAULT_UID = 'global_user';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -75,11 +89,55 @@ export default function App() {
   const [navigatorMode, setNavigatorMode] = useState<'dynamic' | 'static'>('dynamic');
 
   useEffect(() => {
+    const testConnection = async () => {
+      try {
+        await getDocFromServer(doc(db, 'test', 'connection'));
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('the client is offline')) {
+          console.error("Please check your Firebase configuration.");
+        }
+      }
+    };
+    testConnection();
+  }, []);
+
+  useEffect(() => {
+    const historyQuery = query(
+      collection(db, 'history'),
+      orderBy('date', 'desc'),
+      limit(10)
+    );
+
+    const unsubscribeHistory = onSnapshot(historyQuery, (snapshot) => {
+      const newHistory = snapshot.docs.map(doc => ({
+        ...doc.data(),
+        id: doc.id
+      })) as AnalysisHistory[];
+      setHistory(newHistory);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'history');
+    });
+
+    const statusDocRef = doc(db, 'libraryStatus', DEFAULT_UID);
+    const unsubscribeStatus = onSnapshot(statusDocRef, (snapshot) => {
+      if (snapshot.exists()) {
+        setLibraryStatus(snapshot.data() as Record<string, boolean>);
+      } else {
+        setLibraryStatus({});
+      }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, `libraryStatus/${DEFAULT_UID}`);
+    });
+
+    return () => {
+      unsubscribeHistory();
+      unsubscribeStatus();
+    };
+  }, []);
+
+  useEffect(() => {
     const handleTabChange = (e: any) => setActiveTab(e.detail);
     window.addEventListener('change_tab', handleTabChange);
-    
-    loadLibraryStatus();
-    loadHistory();
     
     window.addEventListener('storage_updated', loadLibraryStatus);
     return () => {
@@ -89,38 +147,29 @@ export default function App() {
   }, []);
 
   const loadLibraryStatus = () => {
-    const status: Record<string, boolean> = {};
-    ['old_rules', 'old_forms', 'new_rules', 'new_forms', 'navigator', 'rules_navigator'].forEach(key => {
-      status[key] = !!localStorage.getItem(`taxdiff_${key}`);
-    });
-    setLibraryStatus(status);
+    // This is now handled by onSnapshot for user-specific status
+    // But we might still need to check localStorage for the actual PDF text if we don't move it to Firestore
+    // For now, let's keep the status check for local storage too if needed, 
+    // but the onSnapshot is better for multi-device sync
   };
 
-  const loadHistory = () => {
-    const data = localStorage.getItem('taxdiff_history');
-    if (data) {
-      try {
-        setHistory(JSON.parse(data));
-      } catch {
-        setHistory([]);
-      }
-    }
-  };
-
-  const saveToHistory = (newReport: string) => {
-    const entry: AnalysisHistory = {
-      id: Date.now().toString(),
+  const saveToHistory = async (newReport: string) => {
+    const entry = {
       date: new Date().toISOString(),
       oldFormNo: input.oldFormNo,
       newFormNo: input.newFormNo,
-      report: newReport
+      report: newReport,
+      uid: DEFAULT_UID
     };
-    const newHistory = [entry, ...history].slice(0, 10);
-    setHistory(newHistory);
-    localStorage.setItem('taxdiff_history', JSON.stringify(newHistory));
+
+    try {
+      await addDoc(collection(db, 'history'), entry);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'history');
+    }
   };
 
-  const handleExtract = async (side: 'old' | 'new') => {
+  const handleExtract = useCallback(async (side: 'old' | 'new') => {
     const ruleNo = side === 'old' ? input.oldRuleNo : input.newRuleNo;
     const formNo = side === 'old' ? input.oldFormNo : input.newFormNo;
 
@@ -129,43 +178,56 @@ export default function App() {
       return;
     }
 
-    const ruleKey = side === 'old' ? 'taxdiff_old_rules' : 'taxdiff_new_rules';
-    const formKey = side === 'old' ? 'taxdiff_old_forms' : 'taxdiff_new_forms';
-
-    const ruleLib = localStorage.getItem(ruleKey);
-    const formLib = localStorage.getItem(formKey);
+    const ruleKey = side === 'old' ? 'old_rules' : 'new_rules';
+    const formKey = side === 'old' ? 'old_forms' : 'new_forms';
 
     let ruleText = "";
     let formText = "";
     let statusMsg = "";
     let statusType: 'success' | 'warning' = 'success';
 
-    if (ruleNo && ruleLib) {
-      const parsed = JSON.parse(ruleLib);
-      const result = detectAndExtract(parsed.text, ruleNo, 'rule');
-      if (result) {
-        ruleText = result.text;
-        statusMsg += `Found Rule ${ruleNo} (${result.method}). `;
-      } else {
-        statusMsg += `Rule ${ruleNo} NOT found. `;
-        statusType = 'warning';
-      }
-    }
+    let ruleLib = null;
+    let formLib = null;
 
-    if (formNo && formLib) {
-      const parsed = JSON.parse(formLib);
-      const result = detectAndExtract(parsed.text, formNo, 'form');
-      if (result) {
-        formText = result.text;
-        statusMsg += `Found Form ${formNo} (${result.method}). `;
-      } else {
-        statusMsg += `Form ${formNo} NOT found. `;
-        statusType = 'warning';
+    try {
+      if (ruleNo) {
+        const ruleSnap = await getDoc(doc(db, 'libraries', `${DEFAULT_UID}_${ruleKey}`));
+        if (ruleSnap.exists()) {
+          ruleLib = ruleSnap.data();
+          const result = detectAndExtract(ruleLib.text, ruleNo, 'rule');
+          if (result) {
+            ruleText = result.text;
+            statusMsg += `Found Rule ${ruleNo} (${result.method}). `;
+          } else {
+            statusMsg += `Rule ${ruleNo} NOT found. `;
+            statusType = 'warning';
+          }
+        } else {
+          statusMsg += "Rule PDF missing. ";
+          statusType = 'warning';
+        }
       }
-    }
 
-    if (!ruleLib && ruleNo) statusMsg += "Rule PDF missing. ";
-    if (!formLib && formNo) statusMsg += "Form PDF missing. ";
+      if (formNo) {
+        const formSnap = await getDoc(doc(db, 'libraries', `${DEFAULT_UID}_${formKey}`));
+        if (formSnap.exists()) {
+          formLib = formSnap.data();
+          const result = detectAndExtract(formLib.text, formNo, 'form');
+          if (result) {
+            formText = result.text;
+            statusMsg += `Found Form ${formNo} (${result.method}). `;
+          } else {
+            statusMsg += `Form ${formNo} NOT found. `;
+            statusType = 'warning';
+          }
+        } else {
+          statusMsg += "Form PDF missing. ";
+          statusType = 'warning';
+        }
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.GET, 'libraries');
+    }
 
     setInput(prev => ({
       ...prev,
@@ -177,7 +239,7 @@ export default function App() {
       ...prev,
       [side]: { status: statusMsg.trim() || "Nothing extracted", type: statusType }
     }));
-  };
+  }, [input.oldRuleNo, input.newRuleNo, input.oldFormNo, input.newFormNo]);
 
   // Auto-map and Auto-extract logic
   useEffect(() => {
@@ -217,7 +279,7 @@ export default function App() {
     if (needsOld || needsNew) {
       triggerExtraction();
     }
-  }, [input.newFormNo, input.newRuleNo, input.oldFormNo, input.oldRuleNo, autoMap]);
+  }, [input.newFormNo, input.oldFormNo, input.newRuleNo, input.oldRuleNo, input.oldFormText, input.oldRuleText, input.newFormText, input.newRuleText, autoMap, handleExtract]);
 
   const handleAnalyze = async () => {
     if (input.selectedSections.length === 0) {
@@ -665,29 +727,31 @@ export default function App() {
             </div>
           </div>
 
-          <nav className="bg-neutral-100 p-1.5 rounded-2xl flex gap-1">
-            {[
-              { id: 'library', label: 'Library Setup', icon: Library },
-              { id: 'rules', label: 'Rules Navigator', icon: FileText },
-              { id: 'forms', label: 'Forms Navigator', icon: FileText },
-              { id: 'compare', label: 'Compare Forms', icon: ArrowRightLeft },
-              { id: 'history', label: 'History', icon: HistoryIcon },
-            ].map(t => (
-              <button
-                key={t.id}
-                onClick={() => setActiveTab(t.id as Tab)}
-                className={cn(
-                  "px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all",
-                  activeTab === t.id 
-                    ? "bg-white text-emerald-600 shadow-sm" 
-                    : "text-neutral-500 hover:text-neutral-700 hover:bg-neutral-200/50"
-                )}
-              >
-                <t.icon className="w-4 h-4" />
-                {t.label}
-              </button>
-            ))}
-          </nav>
+          <div className="flex items-center gap-4">
+            <nav className="bg-neutral-100 p-1.5 rounded-2xl flex gap-1">
+              {[
+                { id: 'library', label: 'Library Setup', icon: Library },
+                { id: 'rules', label: 'Rules Navigator', icon: FileText },
+                { id: 'forms', label: 'Forms Navigator', icon: FileText },
+                { id: 'compare', label: 'Compare Forms', icon: ArrowRightLeft },
+                { id: 'history', label: 'History', icon: HistoryIcon },
+              ].map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => setActiveTab(t.id as Tab)}
+                  className={cn(
+                    "px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all",
+                    activeTab === t.id 
+                      ? "bg-white text-emerald-600 shadow-sm" 
+                      : "text-neutral-500 hover:text-neutral-700 hover:bg-neutral-200/50"
+                  )}
+                >
+                  <t.icon className="w-4 h-4" />
+                  {t.label}
+                </button>
+              ))}
+            </nav>
+          </div>
         </div>
       </header>
 

@@ -2,7 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Upload, CheckCircle, XCircle, Trash2, AlertTriangle, Loader2, FileText } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { doc, getDoc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
+
+import { db, handleFirestoreError, OperationType } from '@/firebase';
 import { parseNavigatorTable } from '@/services/geminiService';
+
+const DEFAULT_UID = 'global_user';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -45,42 +50,61 @@ export default function LibrarySetup() {
   const [activeKey, setActiveKey] = useState<string | null>(null);
 
   useEffect(() => {
-    loadStatuses();
+    const statusDocRef = doc(db, 'libraryStatus', DEFAULT_UID);
+    const unsubscribe = onSnapshot(statusDocRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        setStatuses(prev => prev.map(s => {
+          const libData = data[s.key];
+          if (libData) {
+            return {
+              ...s,
+              filename: libData.filename,
+              pages: libData.pages,
+              chars: libData.chars,
+              savedAt: libData.savedAt,
+            };
+          }
+          return { ...s, filename: null, pages: null, chars: null, savedAt: null };
+        }));
+      }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, `libraryStatus/${DEFAULT_UID}`);
+    });
+
+    return () => unsubscribe();
   }, []);
 
-  const loadStatuses = () => {
-    const newStatuses = statuses.map(s => {
-      const data = localStorage.getItem(`taxdiff_${s.key}`);
-      if (data) {
-        try {
-          const parsed = JSON.parse(data);
-          return {
-            ...s,
-            filename: parsed.filename,
-            pages: parsed.pages,
-            chars: parsed.chars,
-            savedAt: parsed.savedAt,
-          };
-        } catch {
-          return s;
-        }
+  const handleClear = async (key: string) => {
+    try {
+      const libId = `${DEFAULT_UID}_${key}`;
+      await deleteDoc(doc(db, 'libraries', libId));
+      
+      const statusDocRef = doc(db, 'libraryStatus', DEFAULT_UID);
+      const statusSnap = await getDoc(statusDocRef);
+      if (statusSnap.exists()) {
+        const currentData = statusSnap.data();
+        delete currentData[key];
+        await setDoc(statusDocRef, currentData);
       }
-      return s;
-    });
-    setStatuses(newStatuses);
-  };
-
-  const handleClear = (key: string) => {
-    localStorage.removeItem(`taxdiff_${key}`);
-    loadStatuses();
-    window.dispatchEvent(new Event('storage_updated'));
-  };
-
-  const handleClearAll = () => {
-    if (confirm("Are you sure you want to clear all documents?")) {
-      DOC_KEYS.forEach(d => localStorage.removeItem(`taxdiff_${d.key}`));
-      loadStatuses();
+      
       window.dispatchEvent(new Event('storage_updated'));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `libraries/${DEFAULT_UID}_${key}`);
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (confirm("Are you sure you want to clear all documents?")) {
+      try {
+        for (const d of DOC_KEYS) {
+          await deleteDoc(doc(db, 'libraries', `${DEFAULT_UID}_${d.key}`));
+        }
+        await deleteDoc(doc(db, 'libraryStatus', DEFAULT_UID));
+        window.dispatchEvent(new Event('storage_updated'));
+      } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, `libraryStatus/${DEFAULT_UID}`);
+      }
     }
   };
 
@@ -117,33 +141,80 @@ export default function LibrarySetup() {
           setStatuses(prev => prev.map(s => s.key === activeKey ? { ...s, progress: Math.round((i / numPages) * 100) } : s));
         }
 
-        // Browser localStorage limit check (approx 5MB)
-        if (fullText.length > 400000) {
-          alert("Document is too large for browser storage. Only the first 400,000 characters will be saved.");
-          fullText = fullText.substring(0, 400000);
+        // Firestore document limit check (1MB total)
+        const MAX_TOTAL_CHARS = 900000; // Safe limit below 1,048,576 bytes
+        let finalFullText = fullText;
+        let finalPageTexts = pageTexts;
+
+        const totalChars = finalFullText.length + (finalPageTexts ? finalPageTexts.join("").length : 0);
+
+        if (totalChars > MAX_TOTAL_CHARS) {
+          alert("Document is too large for cloud storage (~1MB limit). Content will be truncated to fit.");
+          
+          // Prioritize fullText (used for search) over pageTexts (used for navigator)
+          // Allocate 60% to fullText, 40% to pageTexts
+          const fullTextLimit = Math.floor(MAX_TOTAL_CHARS * 0.6);
+          const pageTextsLimit = Math.floor(MAX_TOTAL_CHARS * 0.4);
+
+          finalFullText = finalFullText.substring(0, fullTextLimit);
+          
+          if (finalPageTexts && finalPageTexts.length > 0) {
+            let currentTotal = 0;
+            const truncatedPages = [];
+            for (const p of finalPageTexts) {
+              if (currentTotal + p.length < pageTextsLimit) {
+                truncatedPages.push(p);
+                currentTotal += p.length;
+              } else {
+                const remaining = pageTextsLimit - currentTotal;
+                if (remaining > 500) {
+                  truncatedPages.push(p.substring(0, remaining) + "... [TRUNCATED]");
+                }
+                break;
+              }
+            }
+            finalPageTexts = truncatedPages;
+          }
         }
 
         let links = null;
         if (activeKey === 'navigator' || activeKey === 'rules_navigator') {
-          links = await parseNavigatorTable(fullText);
+          links = await parseNavigatorTable(finalFullText);
         }
 
-        const docData = {
-          text: fullText,
-          pageTexts: (activeKey.includes('forms') || activeKey.includes('navigator')) ? pageTexts : undefined,
+        const docData: any = {
+          uid: DEFAULT_UID,
+          text: finalFullText,
           filename: file.name,
           pages: numPages,
-          chars: fullText.length,
+          chars: finalFullText.length,
           savedAt: new Date().toISOString(),
-          links
+          links: links || null
         };
 
+        if (activeKey.includes('forms') || activeKey.includes('navigator')) {
+          docData.pageTexts = finalPageTexts;
+        }
+
         try {
-          localStorage.setItem(`taxdiff_${activeKey}`, JSON.stringify(docData));
-          loadStatuses();
+          const libId = `${DEFAULT_UID}_${activeKey}`;
+          await setDoc(doc(db, 'libraries', libId), docData);
+          
+          const statusDocRef = doc(db, 'libraryStatus', DEFAULT_UID);
+          const statusSnap = await getDoc(statusDocRef);
+          const currentStatus = statusSnap.exists() ? statusSnap.data() : { uid: DEFAULT_UID };
+          
+          currentStatus[activeKey] = {
+            filename: file.name,
+            pages: numPages,
+            chars: fullText.length,
+            savedAt: docData.savedAt
+          };
+          
+          await setDoc(statusDocRef, currentStatus);
           window.dispatchEvent(new Event('storage_updated'));
-        } catch {
-          alert("Storage failed: Document exceeds browser's localStorage limit (usually 5-10MB). Try a smaller PDF.");
+        } catch (error) {
+          handleFirestoreError(error, OperationType.WRITE, `libraries/${DEFAULT_UID}_${activeKey}`);
         } finally {
           setStatuses(prev => prev.map(s => s.key === activeKey ? { ...s, loading: false } : s));
           setActiveKey(null);
@@ -246,9 +317,9 @@ export default function LibrarySetup() {
       <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex gap-3">
         <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
         <div className="text-sm text-amber-800">
-          <p className="font-semibold">Storage Limitation Warning</p>
+          <p className="font-semibold">Cloud Storage Warning</p>
           <p className="mt-1 opacity-90">
-            Documents are stored in your browser's <strong>localStorage</strong>. This is limited to ~5-10MB. 
+            Documents are stored in <strong>Firebase Firestore</strong>. Each document is limited to ~1MB. 
             Large PDFs may fail to save. If you encounter issues, try uploading smaller PDF snippets or clearing existing documents.
           </p>
         </div>
