@@ -33,6 +33,49 @@ const DOC_KEYS = [
   { key: 'rules_navigator', label: 'NAVIGATOR (Rules Mapping)' },
 ];
 
+/**
+ * Extract text from a PDF page using Y-coordinate awareness.
+ * pdfjsLib's getTextContent() returns text items with position data in .transform.
+ * Simple .join(" ") loses line structure and can drop/misorder text near page edges.
+ */
+function extractPageText(content: any): string {
+  const items = content.items;
+  if (!items || items.length === 0) return "";
+
+  const textItems = items.filter((item: any) => 
+    item.str && item.str.trim().length > 0 && item.transform
+  );
+
+  if (textItems.length === 0) {
+    return items.map((item: any) => item.str || "").join(" ");
+  }
+
+  // Sort by Y descending (top of page first), then X ascending (left to right)
+  textItems.sort((a: any, b: any) => {
+    const yA = a.transform[5];
+    const yB = b.transform[5];
+    const yDiff = yB - yA;
+    if (Math.abs(yDiff) > 3) return yDiff;
+    return a.transform[4] - b.transform[4];
+  });
+
+  let result = "";
+  let lastY: number | null = null;
+
+  for (const item of textItems) {
+    const y = item.transform[5];
+    if (lastY !== null && Math.abs(y - lastY) > 3) {
+      result += "\n";
+    } else if (result.length > 0 && !result.endsWith(" ") && !result.endsWith("\n")) {
+      result += " ";
+    }
+    result += item.str;
+    lastY = y;
+  }
+
+  return result.trim();
+}
+
 export default function LibrarySetup() {
   const [statuses, setStatuses] = useState<DocStatus[]>(
     DOC_KEYS.map(d => ({
@@ -133,8 +176,7 @@ export default function LibrarySetup() {
         for (let i = 1; i <= numPages; i++) {
           const page = await pdf.getPage(i);
           const content = await page.getTextContent();
-          const strings = content.items.map((item: any) => item.str);
-          const pageText = strings.join(" ");
+          const pageText = extractPageText(content);
           pageTexts.push(pageText);
           fullText += pageText + "\n";
           
