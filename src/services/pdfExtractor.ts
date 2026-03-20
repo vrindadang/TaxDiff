@@ -4,6 +4,7 @@ export function cleanWebText(text: string): string {
     // Remove Gazette headers and artifacts
     .replace(/THE GAZETTE OF INDIA\s*:\s*EXTRAORDINARY/gi, "")
     .replace(/\[PART II—SEC\.\s*3\(i\)\]/gi, "")
+    .replace(/\[\s*(?:P\s*(?:ART)?\s*)?II\s*—\s*S\s*(?:EC)?\s*\.\s*3\s*\(\s*i\s*\)\s*\]/gi, "")
     // Remove Hindi Gazette headers and characters
     .replace(/भारत\s*का\s*राजपत्र\s*:\s*असाधारण/g, "")
     .replace(/[\u0900-\u097F]+/g, " ")
@@ -71,9 +72,10 @@ export function extractSection(
     : [
         // FORMS: "FORM NO. 41" or "FORM NO.41" — these work fine because
         // "FORM NO." is a distinctive marker that doesn't need line anchoring
+        new RegExp(`FORM\\s+NO\\.?\\s*${cleanQuery}\\b[\\s\\S]{0,20}\\[\\s*[Ss]ee\\s+[Rr]ule`, "i"),
+        new RegExp(`FORM\\s+NO\\.?\\s*${cleanQuery}\\s*\\n\\s*\\[`, "i"),
+        new RegExp(`FORM\\s+NO\\.?\\s*${cleanQuery}\\s*\\[`, "i"),
         new RegExp(`FORM\\s+NO\\.?\\s*${cleanQuery}\\b`, "i"),
-        new RegExp(`\\[Form No\\.?\\s*${cleanQuery}\\]`, "im"),
-        new RegExp(`FORM\\s+${cleanQuery}\\b`, "i"),
       ];
 
   let match: RegExpExecArray | null = null;
@@ -104,23 +106,34 @@ export function extractSection(
 
   // ━━━ Find the end boundary ━━━
   // We look for the NEXT rule/form number.
-  const endPattern = type === "rule"
-    ? new RegExp(`(?:[.;)\\]]\\s+|\\n\\s*)(?!${cleanQuery}\\.)\\d+\\.\\s+[A-Z]`, "m")
-    : new RegExp(`FORM\\s+NO\\.?\\s*(?!${cleanQuery}\\b)\\d+`, "i");
-
   let end = fullText.length;
-  // Skip the current start marker
-  const nextMatch = endPattern.exec(fullText.substring(start + 20));
-  if (nextMatch) {
-    let matchPos = start + 20 + nextMatch.index;
-    // Adjust back to the start of the number
-    if (type === "rule") {
+  const searchAfter = start + 20;
+  const remainingText = fullText.substring(searchAfter);
+
+  if (type === "rule") {
+    const endPattern = new RegExp(`(?:[.;)\\]]\\s+|\\n\\s*)(?!${cleanQuery}\\.)\\d+\\.\\s+[A-Z]`, "m");
+    const nextMatch = endPattern.exec(remainingText);
+    if (nextMatch) {
+      let matchPos = searchAfter + nextMatch.index;
       const numMatch = /\d+\./.exec(nextMatch[0]);
       if (numMatch) {
-        matchPos = start + 20 + nextMatch.index + nextMatch[0].indexOf(numMatch[0]);
+        matchPos = searchAfter + nextMatch.index + nextMatch[0].indexOf(numMatch[0]);
+      }
+      end = matchPos;
+    }
+  } else {
+    const formEndPattern = new RegExp(
+      `FORM\\s+NO\\.?\\s*(?!${cleanQuery}\\b)\\d+\\b[\\s\\S]{0,20}\\[\\s*[Ss]ee\\s+[Rr]ule`, "i"
+    );
+    const endMatch = formEndPattern.exec(remainingText);
+    if (endMatch) {
+      const formIdx = remainingText.toUpperCase().indexOf("FORM", endMatch.index);
+      if (formIdx !== -1) {
+        end = Math.min(end, searchAfter + formIdx);
+      } else {
+        end = Math.min(end, searchAfter + endMatch.index);
       }
     }
-    end = matchPos;
   }
 
   // Cap length to avoid runaway extraction
