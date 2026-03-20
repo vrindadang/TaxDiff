@@ -207,41 +207,8 @@ export default function LibrarySetup() {
           setStatuses(prev => prev.map(s => s.key === activeKey ? { ...s, progress: Math.round((i / numPages) * 100) } : s));
         }
 
-        // Firestore document limit check (1MB total)
-        const MAX_TOTAL_CHARS = 900000; // Safe limit below 1,048,576 bytes
-        let finalFullText = fullText;
-        let finalPageTexts = pageTexts;
-
-        const totalChars = finalFullText.length + (finalPageTexts ? finalPageTexts.join("").length : 0);
-
-        if (totalChars > MAX_TOTAL_CHARS) {
-          alert("Document is too large for cloud storage (~1MB limit). Content will be truncated to fit.");
-          
-          // Prioritize fullText (used for search) over pageTexts (used for navigator)
-          // Allocate 60% to fullText, 40% to pageTexts
-          const fullTextLimit = Math.floor(MAX_TOTAL_CHARS * 0.6);
-          const pageTextsLimit = Math.floor(MAX_TOTAL_CHARS * 0.4);
-
-          finalFullText = finalFullText.substring(0, fullTextLimit);
-          
-          if (finalPageTexts && finalPageTexts.length > 0) {
-            let currentTotal = 0;
-            const truncatedPages = [];
-            for (const p of finalPageTexts) {
-              if (currentTotal + p.length < pageTextsLimit) {
-                truncatedPages.push(p);
-                currentTotal += p.length;
-              } else {
-                const remaining = pageTextsLimit - currentTotal;
-                if (remaining > 500) {
-                  truncatedPages.push(p.substring(0, remaining) + "... [TRUNCATED]");
-                }
-                break;
-              }
-            }
-            finalPageTexts = truncatedPages;
-          }
-        }
+        const finalFullText = fullText;
+        const finalPageTexts = pageTexts;
 
         let links = null;
         if (activeKey === 'navigator' || activeKey === 'rules_navigator') {

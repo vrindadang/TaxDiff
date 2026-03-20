@@ -123,14 +123,6 @@ export function extractSection(
     end = matchPos;
   }
 
-  // If extracting rules, also stop if we hit the Forms section
-  if (type === "rule") {
-    const formMarker = fullText.substring(start + 20).search(/FORM\s+NO/i);
-    if (formMarker !== -1) {
-      end = Math.min(end, start + 20 + formMarker);
-    }
-  }
-
   // Cap length to avoid runaway extraction
   end = Math.min(end, start + 80000);
 
