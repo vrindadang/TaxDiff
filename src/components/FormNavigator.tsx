@@ -1,12 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Search, ArrowRight, FileText } from 'lucide-react';
-import { doc, getDoc } from 'firebase/firestore';
 
-import { db, handleFirestoreError, OperationType } from '@/firebase';
+import { handleFirestoreError, OperationType, loadLibraryText } from '@/firebase';
 import { RULE_NAVIGATOR, FORM_NAVIGATOR } from '@/constants/navigator';
 import { extractByPage } from '@/services/pdfExtractor';
-
-const DEFAULT_UID = 'global_user';
 
 interface NavigatorEntry {
   label: string;
@@ -45,15 +42,10 @@ export default function FormNavigator({ onUseAsOld, onUseAsNew, onSelectMapping,
 
     const key = filterType === 'form' ? 'navigator' : 'rules_navigator';
     try {
-      const libSnap = await getDoc(doc(db, 'libraries', `${DEFAULT_UID}_${key}`));
-      if (libSnap.exists()) {
-        const parsed = libSnap.data();
-        setEntries(parsed.links || []);
-      } else {
-        setEntries([]);
-      }
-    } catch (error) {
-      handleFirestoreError(error, OperationType.GET, `libraries/${DEFAULT_UID}_${key}`);
+      const { data } = await loadLibraryText(key);
+      setEntries(data.links || []);
+    } catch {
+      setEntries([]);
     }
   }, [filterType, mode]);
 
@@ -70,13 +62,8 @@ export default function FormNavigator({ onUseAsOld, onUseAsNew, onSelectMapping,
         ? (filterType === 'form' ? 'old_forms' : 'old_rules')
         : (filterType === 'form' ? 'new_forms' : 'new_rules');
       
-      const libSnap = await getDoc(doc(db, 'libraries', `${DEFAULT_UID}_${libKey}`));
-      if (!libSnap.exists()) {
-        alert(`Please upload the ${side.toUpperCase()} ${filterType.toUpperCase()}S PDF in Library Setup first.`);
-        return;
-      }
-
-      const parsedLib = libSnap.data();
+      const { data } = await loadLibraryText(libKey);
+      const parsedLib = data;
       const page = side === 'old' ? entry.oldPage : entry.newPage;
       const label = side === 'old' ? entry.oldLabel : entry.label;
 

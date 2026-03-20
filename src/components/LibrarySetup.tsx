@@ -120,7 +120,20 @@ export default function LibrarySetup() {
 
   const handleClear = async (key: string) => {
     try {
+      // Delete the main pointer doc
       const libId = `${DEFAULT_UID}_${key}`;
+      const mainSnap = await getDoc(doc(db, 'libraries', libId));
+      
+      if (mainSnap.exists()) {
+        const data = mainSnap.data();
+        // Delete all chunks if chunked
+        if (data.chunked && data.totalChunks) {
+          for (let c = 0; c < data.totalChunks; c++) {
+            await deleteDoc(doc(db, 'libraries', `${libId}_chunk${c}`));
+          }
+        }
+      }
+      
       await deleteDoc(doc(db, 'libraries', libId));
       
       const statusDocRef = doc(db, 'libraryStatus', DEFAULT_UID);
@@ -141,7 +154,18 @@ export default function LibrarySetup() {
     if (confirm("Are you sure you want to clear all documents?")) {
       try {
         for (const d of DOC_KEYS) {
-          await deleteDoc(doc(db, 'libraries', `${DEFAULT_UID}_${d.key}`));
+          const libId = `${DEFAULT_UID}_${d.key}`;
+          const mainSnap = await getDoc(doc(db, 'libraries', libId));
+          
+          if (mainSnap.exists()) {
+            const data = mainSnap.data();
+            if (data.chunked && data.totalChunks) {
+              for (let c = 0; c < data.totalChunks; c++) {
+                await deleteDoc(doc(db, 'libraries', `${libId}_chunk${c}`));
+              }
+            }
+          }
+          await deleteDoc(doc(db, 'libraries', libId));
         }
         await deleteDoc(doc(db, 'libraryStatus', DEFAULT_UID));
         window.dispatchEvent(new Event('storage_updated'));
@@ -239,8 +263,47 @@ export default function LibrarySetup() {
         }
 
         try {
-          const libId = `${DEFAULT_UID}_${activeKey}`;
-          await setDoc(doc(db, 'libraries', libId), docData);
+          // ── Chunked storage to stay within Firestore 1MB doc limit ──
+          const CHUNK_SIZE = 800000; // 800KB per chunk (safe margin below 1MB)
+          const textToStore = docData.text as string;
+          const totalChunks = Math.ceil(textToStore.length / CHUNK_SIZE);
+
+          // Write chunk documents: libraries/{uid}_{key}_chunk0, chunk1, ...
+          for (let c = 0; c < totalChunks; c++) {
+            const chunkId = `${DEFAULT_UID}_${activeKey}_chunk${c}`;
+            const chunkText = textToStore.substring(c * CHUNK_SIZE, (c + 1) * CHUNK_SIZE);
+            
+            const chunkDoc: any = { uid: DEFAULT_UID, text: chunkText, chunkIndex: c, totalChunks };
+            
+            // Only first chunk gets metadata and pageTexts
+            if (c === 0) {
+              chunkDoc.filename = docData.filename;
+              chunkDoc.pages = docData.pages;
+              chunkDoc.chars = docData.chars;
+              chunkDoc.savedAt = docData.savedAt;
+              chunkDoc.links = docData.links || null;
+              if (docData.pageTexts) {
+                // pageTexts can also be large — only include if it fits
+                const pageTextsStr = JSON.stringify(docData.pageTexts);
+                if (pageTextsStr.length < 500000) {
+                  chunkDoc.pageTexts = docData.pageTexts;
+                }
+              }
+            }
+            
+            await setDoc(doc(db, 'libraries', chunkId), chunkDoc);
+          }
+
+          // Also write the old single-doc ID as a pointer (for backward compatibility)
+          await setDoc(doc(db, 'libraries', `${DEFAULT_UID}_${activeKey}`), {
+            uid: DEFAULT_UID,
+            chunked: true,
+            totalChunks,
+            filename: docData.filename,
+            pages: docData.pages,
+            chars: docData.chars,
+            savedAt: docData.savedAt,
+          });
           
           const statusDocRef = doc(db, 'libraryStatus', DEFAULT_UID);
           const statusSnap = await getDoc(statusDocRef);

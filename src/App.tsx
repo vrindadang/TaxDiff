@@ -26,13 +26,12 @@ import {
   orderBy, 
   onSnapshot, 
   addDoc, 
-  doc, 
-  getDoc,
+  doc,
   getDocFromServer,
   limit
 } from 'firebase/firestore';
 
-import { db, handleFirestoreError, OperationType } from '@/firebase';
+import { db, handleFirestoreError, OperationType, loadLibraryText } from '@/firebase';
 import LibrarySetup from '@/components/LibrarySetup';
 import FormNavigator from '@/components/FormNavigator';
 import { analyzeTaxForms, TaxAnalysisInput } from '@/services/geminiService';
@@ -186,15 +185,11 @@ export default function App() {
     let statusMsg = "";
     let statusType: 'success' | 'warning' = 'success';
 
-    let ruleLib = null;
-    let formLib = null;
-
     try {
       if (ruleNo) {
-        const ruleSnap = await getDoc(doc(db, 'libraries', `${DEFAULT_UID}_${ruleKey}`));
-        if (ruleSnap.exists()) {
-          ruleLib = ruleSnap.data();
-          const result = detectAndExtract(ruleLib.text, ruleNo, 'rule');
+        const { text } = await loadLibraryText(ruleKey);
+        if (text) {
+          const result = detectAndExtract(text, ruleNo, 'rule');
           if (result) {
             ruleText = result.text;
             statusMsg += `Found Rule ${ruleNo} (${result.method}). `;
@@ -209,10 +204,9 @@ export default function App() {
       }
 
       if (formNo) {
-        const formSnap = await getDoc(doc(db, 'libraries', `${DEFAULT_UID}_${formKey}`));
-        if (formSnap.exists()) {
-          formLib = formSnap.data();
-          const result = detectAndExtract(formLib.text, formNo, 'form');
+        const { text } = await loadLibraryText(formKey);
+        if (text) {
+          const result = detectAndExtract(text, formNo, 'form');
           if (result) {
             formText = result.text;
             statusMsg += `Found Form ${formNo} (${result.method}). `;
@@ -225,8 +219,10 @@ export default function App() {
           statusType = 'warning';
         }
       }
-    } catch (error) {
-      handleFirestoreError(error, OperationType.GET, 'libraries');
+    } catch {
+      statusMsg += "PDF missing or error loading. ";
+      statusType = 'warning';
+      // Don't throw error here to keep UI responsive
     }
 
     setInput(prev => ({

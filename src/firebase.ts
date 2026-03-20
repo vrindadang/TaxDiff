@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { getFirestore, doc, getDoc } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDDjruVNJFJQ8KS7Tu_6AQwdFtyq8vjQio",
@@ -70,4 +70,31 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   }
   console.error('Firestore Error: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
+}
+
+export async function loadLibraryText(libraryKey: string, uid: string = 'global_user'): Promise<{ text: string; data: any }> {
+  const libId = `${uid}_${libraryKey}`;
+  const mainSnap = await getDoc(doc(db, 'libraries', libId));
+  
+  if (!mainSnap.exists()) {
+    throw new Error("Library document not found");
+  }
+  
+  const mainData = mainSnap.data();
+  if (!mainData.chunked) {
+    return { text: mainData.text || "", data: mainData };
+  }
+  
+  // Reassemble chunks
+  let fullText = "";
+  const totalChunks = mainData.totalChunks;
+  
+  for (let c = 0; c < totalChunks; c++) {
+    const chunkSnap = await getDoc(doc(db, 'libraries', `${libId}_chunk${c}`));
+    if (chunkSnap.exists()) {
+      fullText += chunkSnap.data().text || "";
+    }
+  }
+  
+  return { text: fullText, data: mainData };
 }
