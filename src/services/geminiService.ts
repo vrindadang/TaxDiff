@@ -109,21 +109,14 @@ REDLINE FORMAT — MANDATORY RULES (READ CAREFULLY)
    - If an entire clause was removed, put the FULL original text in the Old Text column wrapped as [DEL: full original text], and write [DEL: Entire clause removed] in the New Text column.
    - If an entire clause is new, write [ADD: Entire clause is new] in the Old Text column, and put the FULL new text in the New Text column wrapped as [ADD: full new text].
 
-EXAMPLES OF CORRECT REDLINE:
-  Old Text: [DEL: on or before the end of the assessment year]
-  New Text: [ADD: within 12 months from the end of the relevant tax year]
+TERMINOLOGY SCAN:
+- Flag EVERY instance where "financial year" and "tax year" appear in the same rule. 
+- Note in the track changes whether the usage is intentional (e.g., "financial year" for calendar-based deadlines, "tax year" for the income period) or potentially a drafting inconsistency.
 
-  Old Text: [DEL: Self-verification by assessee / authorized signatory]
-  New Text: [ADD: Form No. 44 shall be verified by an accountant: (a) where the assessee is a company; or (b) foreign tax exceeds one lakh rupees.]
-
-  Old Text: provisions of [DEL: section 115JB or section 115JC]
-  New Text: provisions of [ADD: section 206]
-
-EXAMPLES OF WRONG REDLINE (NEVER DO THIS):
-  ✗ Old Text: [REMOVED CLAUSE]          ← Wrong! Missing the actual deleted text
-  ✗ Old Text: [REMOVED]                 ← Wrong! Missing the actual deleted text  
-  ✗ New Text: [NEW CLAUSE]              ← Wrong! Missing the actual new text
-  ✗ Old Text: (empty or blank)          ← Wrong! Must show what existed before
+VERIFICATION STATUS:
+- For every claim about the old form/rule, you MUST append a verification indicator:
+  - [VERIFIED] — if the claim was compared against the provided "OLD RULE TEXT" or "OLD FORM TEXT".
+  - [BASED ON KNOWN LAW] — if the claim is based on your knowledge of the old law but the specific source text was not provided in the context.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -132,6 +125,7 @@ SECTION STRUCTURE (use only the sections requested):
 SECTION 1: FORM IDENTITY CARD
 A comparison TABLE (not prose). Columns: Attribute | Old Form | New Form.
 Rows MUST include: Form Number, Rule Reference, Governing Section, Who Must File, Filing Deadline, Mode of Filing, Filed With/To, Frequency.
+CROSS-REFERENCE CHECK: Check if the Rule that refers to the Form and the Rule cited in the Form's own header are the same. If they differ, note both references and explain the relationship.
 
 SECTION 2: TRACK CHANGES (LINE-BY-LINE REDLINE)
 Split into TWO sub-sections (2A: Rule changes, 2B: Form changes). Each sub-section has TWO tables:
@@ -140,16 +134,24 @@ Split into TWO sub-sections (2A: Rule changes, 2B: Form changes). Each sub-secti
 
 SECTION 2B must start on a new page.
 
-CRITICAL TABLE 2 RULES:
-- In Table 2, the "Old Text" column MUST contain the original statutory text with deleted portions wrapped in [DEL: ...].
-- In Table 2, the "New Text" column MUST contain the replacement text with added portions wrapped in [ADD: ...].
-- EVERY row must have meaningful text in BOTH the Old Text and New Text columns.
-- NEVER leave the Old Text column as just [REMOVED CLAUSE] or [REMOVED] — always include the actual original words.
-- Minimum 6 rows in each Table 2.
+FIELD-LEVEL DIFF: Systematically compare every field/column in the old form against the new form. For each field present in the new form but absent in the old form, generate a tracked change entry. For significant structural changes like column count expansion (e.g., Annexure II expansion), generate a separate change entry noting the scale.
 
 SECTION 3: CATEGORISED CHANGE ANALYSIS
 A MARKDOWN TABLE with columns: # | Field / Clause | Change Description | Primary Category | Secondary Category | Tax Expert Note
-Minimum 7 rows. Category tags MUST use the actual letter code [A] through [L] followed by the category name (e.g., [K] New Compliance Obligation). NEVER use [X].
+Minimum 7 rows. 
+STRICT CATEGORY CODES: You MUST ONLY use the exact A–L codes below. Never invent new labels.
+[A] Scope Enlargement
+[B] Scope Reduction
+[C] New Info Required
+[D] Information Removed
+[E] Threshold/Numerical
+[F] Language Change
+[G] Renumbering
+[H] Procedural
+[I] System/Digital
+[J] Structural Reorg
+[K] New Obligation
+[L] Obligation Removed
 
 SECTION 4: IT SYSTEM & RECORD-KEEPING IMPACT
 A MARKDOWN TABLE with columns: # | System Area | Action Required | Triggered By | Description. Minimum 5 rows.
@@ -160,16 +162,20 @@ Then list exactly 5 risk flags as cards. Each flag must:
 - Have a severity prefix: **High Risk**, **Medium Risk**, or **Data Matching Risk**
 - Have a specific, descriptive title derived from the actual changes found in the source texts
 - Contain 3-4 sentences with specific rule/form/section references from the analyzed documents
-- Cover these 5 risk dimensions (adapt titles to the specific forms/rules being analyzed):
+- Cover these 5 risk dimensions:
   1. The single most impactful new compliance obligation
   2. Any area of ambiguity or subjectivity introduced
   3. Any data-matching or cross-referencing risk enabled by new disclosure requirements
   4. Any transition risk between the old and new framework
   5. Any expanded reporting scope or catch-all clause that increases the disclosure burden
-Do NOT hardcode titles — derive them from what the source texts actually say.
+ASYMMETRIC COVERAGE: If a rule provision lists specific form numbers but excludes others in the same family, flag this as a "[NOTE: Asymmetric Coverage]" in this section.
 
 SECTION 6: EXECUTIVE SUMMARY
-Purpose (1 sentence), Top 3 Changes (numbered, 2 sentences each), Biggest Action Item (1 sentence), Complexity Rating.`;
+Purpose statement (1 sentence), Top 3 changes (numbered, 2 sentences each), Biggest action item (1 sentence), Complexity rating.
+COMPLEXITY CRITERIA:
+- LOW: Changes are primarily renumbering, terminology updates, and section reference updates with no new data fields or obligations.
+- MEDIUM: Changes include some new data fields, updated rates/thresholds, or procedural shifts, but the core form structure is preserved.
+- HIGH: Changes include new parts/sections in the form, entirely new compliance obligations, significant structural overhaul, or new quantitative reporting requirements.`;
 
 function buildContext(input: TaxAnalysisInput): string {
   return `━━━ METADATA ━━━
@@ -261,6 +267,7 @@ Create a MARKDOWN TABLE comparing the old and new forms. Use this exact format:
 | Frequency | ... | ... |
 
 Do NOT write this as prose. It MUST be a markdown table.
+CROSS-REFERENCE CHECK: Check if the Rule that refers to the Form (in the rule text) and the Rule cited in the Form's own header are the same. If they differ, note both references and explain the relationship.
 
 SECTION 2: TRACK CHANGES (LINE-BY-LINE REDLINE)
 Split into TWO clearly labelled sub-sections. Each sub-section has TWO tables:
@@ -274,6 +281,8 @@ Table 1 — Rule Analysis:
 |-------------------|--------------|--------------|-----------------|
 
 Minimum 6 rows covering: Filing Deadline, Verification Authority, Refund Triggers, Disputed Tax Credit, MAT/AMT References, TT Buying Rate, Updated Return Reference.
+SCOPE ATTRIBUTION: For any sub-rule that references another sub-rule (e.g., "referred to in sub-rule (1)"), ensure your analysis correctly attributes the scope to the referenced sub-rule, not just adjacent ones.
+VERIFICATION: For every claim about the old rule, append [VERIFIED] or [BASED ON KNOWN LAW].
 
 Table 2 — Rule Track Changes:
 | S.No. | Old Text (Rule ${input.oldRuleNo}) | New Text (Rule ${input.newRuleNo}) |
@@ -285,6 +294,7 @@ CRITICAL TABLE 2 RULES:
 - If an entire clause was removed, put the FULL original text in the Old Text column wrapped as [DEL: full original text], and write [DEL: Entire clause removed] in the New Text column.
 - If an entire clause is new, write [ADD: Entire clause is new] in the Old Text column, and put the FULL new text in the New Text column wrapped as [ADD: full new text].
 - Keep text concise — quote only the key phrase that changed, not entire paragraphs. Minimum 6 rows matching Table 1.
+- TERMINOLOGY SCAN: Flag every instance where "financial year" and "tax year" appear in the same rule. Note if usage is intentional or inconsistent.
 
 **SECTION 2B: CHANGES IN FORM**
 (This sub-section MUST start on a new page in the report.)
@@ -294,6 +304,8 @@ Table 1 — Form Analysis:
 |------------|----------|----------|-----------------|
 
 Minimum 5 rows covering: Form Title & Rule Reference, Basic Assessee Details, Tax Payable Columns, Verification by Accountant, Disputed Tax Intimation.
+FIELD-LEVEL DIFF: Systematically compare every field/column. For each new field (e.g., "Date of Birth / Incorporation"), generate a tracked change entry. For structural data expansion (e.g., Annexure II column expansion), note the scale.
+VERIFICATION: For every claim about the old form, append [VERIFIED] or [BASED ON KNOWN LAW].
 
 Table 2 — Form Track Changes:
 | S.No. | Old Text (Form ${input.oldFormNo}) | New Text (Form ${input.newFormNo}) |
@@ -329,19 +341,20 @@ Output a MARKDOWN TABLE directly. No preamble, no intermediate "Row N:" format, 
 | # | Field / Clause | Change Description | Primary Category | Secondary Category | Tax Expert Note |
 |---|----------------|-------------------|-----------------|-------------------|-----------------|
 
-MANDATORY minimum 7 rows covering:
-- Verification by Accountant (CA certification threshold for companies and FTC >= Rs.1 Lakh)
-- Taxpayer Identification Number (foreign TIN — new field requirement)
-- Income from outside India / Net Income definition (Note 6 — Gross minus expenses)
-- Form 45 for Disputed Tax (new form for settlement intimation, also requiring CA cert)
-- Consolidated Tax Payable (merged Normal and MAT/AMT columns into single column)
-- DTAA Compliance Declaration (assessee and CA must explicitly declare DTAA alignment)
-- Section References renumbering (Sec 90/90A -> 159; Sec 91 -> 160; Sec 115JB/JC -> 206)
+MANDATORY minimum 7 rows. Prioritize these topics if they are applicable to the analyzed source text, otherwise choose the most significant changes found:
+- Verification by Accountant (CA certification thresholds)
+- Taxpayer Identification Number (foreign TIN requirements)
+- Income definitions / Expense apportionment (Note 6)
+- Form 45 for Disputed Tax settlement
+- Consolidated Tax Payable (Normal and MAT/AMT merger)
+- DTAA Compliance Declarations
+- Section References renumbering (e.g., Sec 90/90A -> 159; Sec 91 -> 160; Sec 115JB/JC -> 206)
+- SECTION CODE MAPPING: Enumerate ALL old section/payment codes and ALL new codes found in the text. Produce a complete mapping table. Flag new codes as [NEW] and missing old codes as [DEPRECATED].
 
 Each row's Primary and Secondary Category MUST use the ACTUAL letter code from this list — never use [X]:
-[A] Scope Enlargement | [B] Scope Reduction | [C] New Information Required | [D] Information Removed | [E] Threshold/Numerical | [F] Terminology/Language Change | [G] Section/Rule Renumbering | [H] Process/Procedural Change | [I] System/Digital Change | [J] Structural Reorganisation | [K] New Compliance Obligation | [L] Obligation Removed
+[A] Scope Enlargement | [B] Scope Reduction | [C] New Info Required | [D] Information Removed | [E] Threshold/Numerical | [F] Language Change | [G] Renumbering | [H] Procedural | [I] System/Digital | [J] Structural Reorg | [K] New Obligation | [L] Obligation Removed
 
-Examples: "[K] New Compliance Obligation", "[C] New Information Required", "[G] Section/Rule Renumbering"
+Examples: "[K] New Obligation", "[C] New Info Required", "[G] Renumbering"
 NEVER write "[X]" — always use the real letter A through L.
 Each Tax Expert Note must include a specific system impact, risk exposure, or enforcement/data-matching insight.
 
@@ -379,6 +392,8 @@ Cover these 5 risk dimensions (titles MUST be specific to the forms/rules being 
 4. Any TRANSITION risk between the old and new framework (legacy cases, procedural mismatches, retroactive applicability)
 5. Any EXPANDED REPORTING scope or catch-all clause that broadens the disclosure burden
 
+ASYMMETRIC COVERAGE: If a rule provision lists specific form numbers but excludes others in the same family, flag this as a "[NOTE: Asymmetric Coverage]" in one of the risk flags above.
+
 Order: High Risk flags first, then Medium Risk, then Data Matching Risk.
 
 SECTION 6: EXECUTIVE SUMMARY
@@ -397,6 +412,8 @@ Top 3 Significant Changes:
 Biggest Compliance Action Item: [1 sentence directed at CFOs and Heads of Tax — specific to the forms/rules analyzed]
 
 Overall Complexity Rating: [HIGH / MEDIUM / LOW]
+
+VALIDATION: If this section is empty, auto-generate it from Section 3 and Section 5 content. It MUST contain all components listed above.
 
 CRITICAL: Start directly with "SECTION 3: CATEGORISED CHANGE ANALYSIS". No preamble. Do NOT repeat Section 1 or 2.`;
 
@@ -456,5 +473,32 @@ CRITICAL: Start directly with "SECTION 3: CATEGORISED CHANGE ANALYSIS". No pream
 
   if (uniqueSections.size === 0 || (uniqueSections.size === 1 && uniqueSections.has("PREAMBLE"))) return rawCombined;
 
-  return Array.from(uniqueSections.values()).join('\n\n');
+  const finalReport = Array.from(uniqueSections.values()).join('\n\n');
+
+  // ── EXECUTIVE SUMMARY VALIDATION (BUG #6) ───────────────────
+  if (wants("SECTION 6") && !finalReport.includes("SECTION 6")) {
+    console.log("Executive Summary missing. Attempting to synthesize...");
+    const summaryPrompt = `Based on the following analysis, generate a concise SECTION 6: EXECUTIVE SUMMARY.
+    
+    Analysis: ${finalReport.substring(0, 10000)}
+    
+    Format exactly as:
+    SECTION 6: EXECUTIVE SUMMARY
+    Purpose of the Form: [1 sentence]
+    Top 3 Significant Changes:
+    1. **[Title]:** [2 sentences]
+    2. **[Title]:** [2 sentences]
+    3. **[Title]:** [2 sentences]
+    Biggest Compliance Action Item: [1 sentence]
+    Overall Complexity Rating: [HIGH / MEDIUM / LOW]`;
+    
+    try {
+      const summary = await callGemini(summaryPrompt, "gemini-3-flash-preview");
+      return finalReport + "\n\n" + summary;
+    } catch (e) {
+      console.error("Failed to synthesize summary:", e);
+    }
+  }
+
+  return finalReport;
 }
