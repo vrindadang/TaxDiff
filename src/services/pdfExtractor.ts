@@ -107,31 +107,65 @@ export function extractSection(
   // ━━━ Find the end boundary ━━━
   // We look for the NEXT rule/form number.
   let end = fullText.length;
-  const searchAfter = start + 20;
-  const remainingText = fullText.substring(searchAfter);
 
   if (type === "rule") {
-    const endPattern = new RegExp(`(?:[.;)\\]]\\s+|\\n\\s*)(?!${cleanQuery}\\.)\\d+\\.\\s+[A-Z]`, "m");
-    const nextMatch = endPattern.exec(remainingText);
-    if (nextMatch) {
-      let matchPos = searchAfter + nextMatch.index;
-      const numMatch = /\d+\./.exec(nextMatch[0]);
-      if (numMatch) {
-        matchPos = searchAfter + nextMatch.index + nextMatch[0].indexOf(numMatch[0]);
+    const ruleNum = parseInt(cleanQuery, 10);
+    if (!isNaN(ruleNum)) {
+      // Only look for the NEXT SEQUENTIAL rule numbers (e.g., 238, 239, 240...)
+      // NOT any random number like "1." or "8." inside tables
+      for (let next = ruleNum + 1; next <= ruleNum + 5; next++) {
+        const endCandidates = [
+          new RegExp(`(?:[.;)\\]]\\s+)${next}\\.\\s+[A-Z][a-z]`),
+          new RegExp(`(?:^|\\n)\\s*${next}\\.\\s+[A-Z][a-z]`, "m"),
+          new RegExp(`(?:^|\\s)${next}\\.\\s+[A-Z][a-z]`, "m"),
+        ];
+        let found = false;
+        for (const ep of endCandidates) {
+          const endMatch = ep.exec(fullText.substring(start + 50));
+          if (endMatch) {
+            const candidateEnd = start + 50 + endMatch.index;
+            // Skip cross-references like "section 238" or "rule 238(2)"
+            const before = fullText.substring(Math.max(0, candidateEnd - 30), candidateEnd + 5);
+            const numStr = `${next}.`;
+            const numIdx = before.indexOf(numStr);
+            if (numIdx > 0) {
+              const textBefore = before.substring(0, numIdx);
+              if (/(?:section|rule|sub-rule|form\s+no\.?|under|of|in)\s*$/i.test(textBefore)) {
+                continue;
+              }
+            }
+            const exactNumIdx = fullText.indexOf(`${next}.`, candidateEnd);
+            if (exactNumIdx !== -1 && exactNumIdx <= candidateEnd + 10) {
+              end = exactNumIdx;
+            } else {
+              end = candidateEnd;
+            }
+            found = true;
+            break;
+          }
+        }
+        if (found) break;
       }
-      end = matchPos;
     }
   } else {
+    // Form end boundary - find next FORM NO. heading with [See rule
     const formEndPattern = new RegExp(
       `FORM\\s+NO\\.?\\s*(?!${cleanQuery}\\b)\\d+\\b[\\s\\S]{0,20}\\[\\s*[Ss]ee\\s+[Rr]ule`, "i"
     );
-    const endMatch = formEndPattern.exec(remainingText);
+    const endMatch = formEndPattern.exec(fullText.substring(start + 50));
     if (endMatch) {
-      const formIdx = remainingText.toUpperCase().indexOf("FORM", endMatch.index);
+      const formIdx = fullText.substring(start + 50).toUpperCase().indexOf("FORM", endMatch.index);
       if (formIdx !== -1) {
-        end = Math.min(end, searchAfter + formIdx);
-      } else {
-        end = Math.min(end, searchAfter + endMatch.index);
+        end = start + 50 + formIdx;
+      }
+    }
+    // Fallback: any FORM NO. that isn't ours
+    if (end === fullText.length) {
+      const fallbackPattern = new RegExp(`FORM\\s+NO\\.?\\s*(?!${cleanQuery}\\b)\\d+`, "i");
+      const fallbackMatch = fallbackPattern.exec(fullText.substring(start + 50));
+      if (fallbackMatch) {
+        const fIdx = fullText.substring(start + 50).toUpperCase().indexOf("FORM", fallbackMatch.index);
+        if (fIdx !== -1) end = start + 50 + fIdx;
       }
     }
   }
