@@ -114,9 +114,10 @@ TERMINOLOGY SCAN:
 - Note in the track changes whether the usage is intentional (e.g., "financial year" for calendar-based deadlines, "tax year" for the income period) or potentially a drafting inconsistency.
 
 VERIFICATION STATUS:
-- For every claim about the old form/rule, you MUST append a verification indicator:
-  - [VERIFIED] — if the claim was compared against the provided "OLD RULE TEXT" or "OLD FORM TEXT".
-  - [BASED ON KNOWN LAW] — if the claim is based on your knowledge of the old law but the specific source text was not provided in the context.
+- For every claim about the old or new form/rule, you MUST append a verification indicator:
+  - [VERIFIED] — if the claim was compared against the specific source text provided in the context.
+  - [BASED ON KNOWN LAW] — if the claim is based on your knowledge of the law (Income Tax Act 1961 or 2025) but the specific source text was not provided in the context.
+- If any source text (Old Rule, Old Form, New Rule, or New Form) is "Not provided", you MUST still perform the comparative analysis using your internal knowledge of the Indian Income Tax Act 1961 and the New Income Tax Act 2025. Do not skip sections or tables; instead, fill them using [BASED ON KNOWN LAW] indicators.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

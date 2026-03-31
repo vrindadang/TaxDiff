@@ -283,15 +283,11 @@ export default function App() {
       return;
     }
 
-    const hasOld = input.oldRuleText.trim().length > 100 || input.oldFormText.trim().length > 100;
-    const hasNew = input.newRuleText.trim().length > 100 || input.newFormText.trim().length > 100;
+    const hasOld = input.oldRuleText.trim().length > 50 || input.oldFormText.trim().length > 50;
+    const hasNew = input.newRuleText.trim().length > 50 || input.newFormText.trim().length > 50;
 
-    if (!hasOld || !hasNew) {
-      const missing = (!hasOld && !hasNew) 
-        ? "Both OLD and NEW framework texts are missing."
-        : (!hasOld) ? "OLD framework text is missing." : "NEW framework text is missing.";
-
-      setError(`${missing} Please click 'Extract from Library' for both sides or ensure the PDFs are uploaded in the Library Setup.`);
+    if (!hasOld && !hasNew) {
+      setError("No analysis text found. Please extract text from the library or paste it manually for at least one Rule or Form.");
       return;
     }
 
@@ -522,14 +518,14 @@ export default function App() {
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
                         <label className="text-xs font-bold text-neutral-500 uppercase">Rule Text</label>
-                        {!input.oldRuleText && input.oldRuleNo && <span className="text-[10px] text-amber-600 font-bold animate-pulse">TEXT MISSING</span>}
+                        {!input.oldRuleText && input.oldRuleNo && <span className="text-[10px] text-neutral-400 font-bold uppercase">Not Extracted</span>}
                       </div>
                       <textarea value={input.oldRuleText} onChange={e => setInput(p => ({ ...p, oldRuleText: e.target.value }))} className="input-base h-32 font-mono text-xs resize-none" placeholder="Paste or extract rule text..." />
                     </div>
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
                         <label className="text-xs font-bold text-neutral-500 uppercase">Form Text</label>
-                        {!input.oldFormText && input.oldFormNo && <span className="text-[10px] text-amber-600 font-bold animate-pulse">TEXT MISSING</span>}
+                        {!input.oldFormText && input.oldFormNo && <span className="text-[10px] text-neutral-400 font-bold uppercase">Not Extracted</span>}
                       </div>
                       <textarea value={input.oldFormText} onChange={e => setInput(p => ({ ...p, oldFormText: e.target.value }))} className="input-base h-48 font-mono text-xs resize-none" placeholder="Paste or extract form text..." />
                     </div>
@@ -589,14 +585,14 @@ export default function App() {
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
                         <label className="text-xs font-bold text-neutral-500 uppercase">Rule Text</label>
-                        {!input.newRuleText && input.newRuleNo && <span className="text-[10px] text-amber-600 font-bold animate-pulse">TEXT MISSING</span>}
+                        {!input.newRuleText && input.newRuleNo && <span className="text-[10px] text-neutral-400 font-bold uppercase">Not Extracted</span>}
                       </div>
                       <textarea value={input.newRuleText} onChange={e => setInput(p => ({ ...p, newRuleText: e.target.value }))} className="input-base h-32 font-mono text-xs resize-none" placeholder="Paste or extract rule text..." />
                     </div>
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
                         <label className="text-xs font-bold text-neutral-500 uppercase">Form Text</label>
-                        {!input.newFormText && input.newFormNo && <span className="text-[10px] text-amber-600 font-bold animate-pulse">TEXT MISSING</span>}
+                        {!input.newFormText && input.newFormNo && <span className="text-[10px] text-neutral-400 font-bold uppercase">Not Extracted</span>}
                       </div>
                       <textarea value={input.newFormText} onChange={e => setInput(p => ({ ...p, newFormText: e.target.value }))} className="input-base h-48 font-mono text-xs resize-none" placeholder="Paste or extract form text..." />
                     </div>
