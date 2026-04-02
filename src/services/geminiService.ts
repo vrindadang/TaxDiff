@@ -1,7 +1,12 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
-const API_KEY = process.env.GEMINI_API_KEY || "";
-const ai = new GoogleGenAI({ apiKey: API_KEY });
+function getAI() {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key || key === "undefined" || key === "") {
+    throw new Error("Gemini API Key is missing. Please ensure GEMINI_API_KEY is set in your environment variables.");
+  }
+  return new GoogleGenAI({ apiKey: key });
+}
 
 export interface TaxAnalysisInput {
   oldRuleText: string;
@@ -54,6 +59,7 @@ export async function parseNavigatorTable(text: string): Promise<NavigatorEntry[
   const prompt = `Extract a table of old and new form/rule mappings from the following text.
 Text: ${text.substring(0, 20000)}`;
   try {
+    const ai = getAI();
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: [{ role: "user", parts: [{ text: prompt }] }],
@@ -196,27 +202,52 @@ ${input.newRuleText || 'Not provided'}
 ${input.newFormText || 'Not provided'}`;
 }
 
-async function callGemini(prompt: string, model: string = "gemini-3.1-pro-preview"): Promise<string> {
+async function callGemini(prompt: string, model: string = "gemini-3.1-pro-preview", retries = 2): Promise<string> {
   console.log(`Calling Gemini API with model ${model}...`);
   const startTime = Date.now();
-  try {
-    const response = await ai.models.generateContent({
-      model: model,
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      config: {
-        temperature: 0.1,
-        maxOutputTokens: 16384,
-        systemInstruction: SYSTEM_INSTRUCTION,
-      },
-    });
-    const duration = Date.now() - startTime;
-    console.log(`Gemini API call completed in ${duration}ms`);
-    return response.text || "";
-  } catch (error) {
-    const duration = Date.now() - startTime;
-    console.error(`Gemini API call failed after ${duration}ms:`, error);
-    throw error;
+  
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const ai = getAI();
+      const response = await ai.models.generateContent({
+        model: model,
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        config: {
+          temperature: 0.1,
+          maxOutputTokens: 16384,
+          systemInstruction: SYSTEM_INSTRUCTION,
+        },
+      });
+      const duration = Date.now() - startTime;
+      console.log(`Gemini API call completed in ${duration}ms`);
+      return response.text || "";
+    } catch (error: any) {
+      const duration = Date.now() - startTime;
+      const isFetchError = error?.message?.includes("fetch") || error?.message?.includes("NetworkError");
+      
+      console.error(`Gemini API call attempt ${attempt + 1} failed after ${duration}ms:`, error);
+      
+      if (attempt < retries && isFetchError) {
+        const delay = Math.pow(2, attempt) * 1000;
+        console.log(`Retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+
+      // If it's a fetch error and we're out of retries, try a fallback model if we were using Pro
+      if (isFetchError && model === "gemini-3.1-pro-preview") {
+        console.log("Attempting fallback to gemini-3-flash-preview...");
+        return callGemini(prompt, "gemini-3-flash-preview", 1);
+      }
+
+      if (isFetchError) {
+        throw new Error("Failed to connect to Gemini API. This is often a network issue or an invalid API key. Please check your internet connection and environment variables.");
+      }
+      
+      throw error;
+    }
   }
+  return "";
 }
 
 export async function analyzeTaxForms(input: TaxAnalysisInput): Promise<string> {
